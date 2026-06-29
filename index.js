@@ -7,13 +7,13 @@ const PORT = process.env.PORT || 3000;
 
 let sock = null;
 let isConnected = false;
-let isPairingReady = false;
+let isReady = false;
 let botName = 'Muzammil MD';
 let ownerNumber = '923039107958';
 
 app.use(express.json());
 
-// ============ HTML PAGE ============
+// HTML Page
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -64,7 +64,7 @@ app.get('/', (req, res) => {
         }
         .status-dot.online { background: #4caf50; box-shadow: 0 0 15px #4caf50; }
         .status-dot.offline { background: #f44336; box-shadow: 0 0 15px #f44336; }
-        .status-dot.connecting { background: #ff9800; box-shadow: 0 0 15px #ff9800; animation: pulse 1s infinite; }
+        .status-dot.ready { background: #4fc3f7; box-shadow: 0 0 15px #4fc3f7; animation: pulse 1s infinite; }
         @keyframes pulse {
             0% { opacity: 1; }
             50% { opacity: 0.3; }
@@ -234,12 +234,15 @@ app.get('/', (req, res) => {
             if (data.connected) {
                 statusText.textContent = '✅ Connected';
                 statusDot.className = 'status-dot online';
+                pairBtn.disabled = false;
             } else if (data.ready) {
-                statusText.textContent = '⏳ Ready to Pair';
-                statusDot.className = 'status-dot connecting';
+                statusText.textContent = '🟢 Ready to Pair';
+                statusDot.className = 'status-dot ready';
+                pairBtn.disabled = false;
             } else {
-                statusText.textContent = '⛔ Disconnected';
+                statusText.textContent = '⛔ Connecting...';
                 statusDot.className = 'status-dot offline';
+                pairBtn.disabled = true;
             }
             if (data.code) {
                 pairCode.textContent = data.code;
@@ -315,30 +318,23 @@ app.get('/', (req, res) => {
     `);
 });
 
-// ============ API ============
+// API
 app.get('/status', (req, res) => {
-    res.json({ 
-        connected: isConnected, 
-        ready: isPairingReady,
-        code: null 
-    });
+    res.json({ connected: isConnected, ready: isReady });
 });
 
 app.post('/pair', async (req, res) => {
     const { phone } = req.body;
-    if (!phone) {
-        return res.json({ success: false, error: 'Phone number required' });
-    }
+    if (!phone) return res.json({ success: false, error: 'Phone required' });
     try {
-        if (!sock || !isPairingReady) {
-            return res.json({ success: false, error: 'Bot is connecting... Wait 10 seconds' });
+        if (!sock || !isReady) {
+            return res.json({ success: false, error: 'Wait 10 seconds...' });
         }
         const code = await sock.requestPairingCode(phone);
-        console.log(`📱 Pairing code sent to ${phone}: ${code}`);
-        res.json({ success: true, code: code });
+        console.log(`📱 Code sent to ${phone}: ${code}`);
+        res.json({ success: true, code });
     } catch (error) {
-        console.error('Pair error:', error);
-        res.json({ success: false, error: 'Connection error. Try again.' });
+        res.json({ success: false, error: 'Try again' });
     }
 });
 
@@ -346,10 +342,9 @@ app.post('/logout', (req, res) => {
     try {
         if (sock) sock.end();
         isConnected = false;
-        isPairingReady = false;
+        isReady = false;
         sock = null;
         res.json({ success: true });
-        console.log('👋 Logged out');
     } catch (error) {
         res.json({ success: false, error: error.message });
     }
@@ -360,7 +355,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🤖 ${botName}`);
 });
 
-// ============ WHATSAPP BOT ============
+// WhatsApp Bot
 async function startBot() {
     try {
         const { state, saveCreds } = await useMultiFileAuthState('session');
@@ -376,14 +371,14 @@ async function startBot() {
             
             if (connection === 'open') {
                 isConnected = true;
-                isPairingReady = true;
+                isReady = true;
                 console.log(`✅ ${botName} Connected!`);
                 console.log(`👤 ${sock.user?.name}`);
             }
             
             if (connection === 'close') {
                 isConnected = false;
-                isPairingReady = false;
+                isReady = false;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 if (statusCode === 401) {
                     console.log('❌ Session expired');
@@ -397,7 +392,7 @@ async function startBot() {
 
         sock.ev.on('creds.update', saveCreds);
 
-        // ============ COMMANDS ============
+        // Commands
         sock.ev.on('messages.upsert', async (m) => {
             const msg = m.messages[0];
             if (!msg.message) return;
@@ -410,11 +405,6 @@ async function startBot() {
             if (text === '.info') {
                 await sock.sendMessage(from, { 
                     text: `🤖 *${botName}*\n👑 Owner: ${ownerNumber}\n✍️ Prowed By: Wasif Ali`
-                });
-            }
-            if (text === '.owner') {
-                await sock.sendMessage(from, { 
-                    text: `👑 *Owner*\n📱 ${ownerNumber}\n💬 wa.me/${ownerNumber}`
                 });
             }
         });
