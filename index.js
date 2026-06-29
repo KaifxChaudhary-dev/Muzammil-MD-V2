@@ -1,4 +1,4 @@
-const express = require('express'); // 1. ٹھیک کر دیا (const چھوٹے حروف میں)
+const express = require('express'); 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const Pino = require('pino');
 
@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3000;
 let sock = null;
 let isReady = false;
 let isConnected = false;
-let pairingCode = null; // کوڈ محفوظ رکھنے کے لیے نیا ویری ایبل
+let pairingCode = null; // پیئرنگ کوڈ کو محفوظ رکھنے کے لیے
 
 app.use(express.json());
 
@@ -65,14 +65,14 @@ app.get('/', (req, res) => {
         
         <div class="status-box">
             <span class="dot offline" id="dot"></span>
-            <span id="status">Disconnected</span>
+            <span id="status">Connecting...</span>
         </div>
         
         <div class="pair-box">
             <h3>📱 Login with Phone Number</h3>
             <div class="input-group">
                 <input type="text" id="phone" placeholder="923001234567">
-                <button class="btn btn-primary" id="pairBtn" type="button">Pair</button>
+                <button class="btn btn-primary" id="pairBtn" type="button" disabled>Pair</button>
             </div>
             <div class="code" id="codeBox">Code: <span id="codeText">123456</span></div>
         </div>
@@ -110,13 +110,13 @@ app.get('/', (req, res) => {
             if (data.connected) {
                 statusEl.textContent = '✅ Connected';
                 dot.className = 'dot online';
-                pairBtn.disabled = true; // کنیکٹ ہونے کے بعد بٹن ڈس ایبل کر دیں
+                pairBtn.disabled = true; 
             } else if (data.ready) {
                 statusEl.textContent = '🟢 Ready to Pair';
                 dot.className = 'dot ready';
                 pairBtn.disabled = false;
             } else {
-                statusEl.textContent = '⛔ Connecting...';
+                statusEl.textContent = '⛔ Connecting to WA...';
                 dot.className = 'dot offline';
                 pairBtn.disabled = true;
             }
@@ -209,7 +209,7 @@ app.get('/status', (req, res) => {
     res.json({ 
         connected: isConnected, 
         ready: isReady,
-        code: pairingCode // فرنٹ اینڈ کو ہر 3 سیکنڈ بعد تازہ ترین کوڈ ملے گا
+        code: pairingCode 
     });
 });
 
@@ -221,8 +221,12 @@ app.post('/pair', async (req, res) => {
     }
     
     try {
-        if (!sock || !isReady) {
-            return res.json({ success: false, error: 'Bot is initializing... Please wait.' });
+        // کریش ہونے سے بچنے کے لیے کلاؤڈ کنکشن اسٹیٹ چیک کریں
+        if (!sock || !sock.ws || sock.ws.readyState !== 1) {
+            return res.json({ 
+                success: false, 
+                error: 'WhatsApp connection is closed/connecting. Please wait 5 seconds and try again.' 
+            });
         }
         
         if (isConnected) {
@@ -231,13 +235,13 @@ app.post('/pair', async (req, res) => {
         
         console.log(`📱 Requesting pairing code for ${phone}...`);
         const code = await sock.requestPairingCode(phone);
-        pairingCode = code; // گلوبل ویری ایبل میں محفوظ کیا
+        pairingCode = code; 
         
         res.json({ success: true, code: code });
         
     } catch (error) {
         console.error('❌ Pair error:', error);
-        res.json({ success: false, error: error.message || 'Pairing failed' });
+        res.json({ success: false, error: 'WhatsApp server busy or connection dropped. Please retry.' });
     }
 });
 
@@ -247,6 +251,7 @@ app.post('/logout', async (req, res) => {
             await sock.logout();
         }
         isConnected = false;
+        isReady = false;
         pairingCode = null;
         res.json({ success: true });
         console.log('👋 Logged out');
@@ -259,6 +264,7 @@ app.post('/logout', async (req, res) => {
 // ============ SERVER ============
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Server: http://0.0.0.0:${PORT}`);
+    console.log('🤖 Muzammil MD');
 });
 
 // ============ WHATSAPP BOT ============
@@ -273,29 +279,34 @@ async function startBot() {
             browser: ['Muzammil MD', 'Chrome', '1.0']
         });
 
-        // جیسے ہی بوٹ کا بیسک فنکشن رن ہو جائے، اسے پیئرنگ کے لیے ریڈی (true) کر دیں
-        isReady = true;
-
         sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect } = update;
+            const { connection, lastDisconnect, qr } = update;
+            
+            // اگر کیو آر جنریٹ ہو رہا ہو یا کنکشن اوپن ہو رہا ہو تو بوٹ کوڈ دینے کے لیے تیار ہے
+            if (qr || connection === 'connecting') {
+                isReady = true;
+            }
             
             if (connection === 'open') {
                 isConnected = true;
-                pairingCode = null; // کنیکٹ ہونے پر پرانا کوڈ صاف کر دیں
+                isReady = true;
+                pairingCode = null; 
                 console.log('✅ Connected!');
+                console.log(`👤 ${sock.user?.name}`);
             }
             
             if (connection === 'close') {
                 isConnected = false;
+                isReady = false;
+                pairingCode = null;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
+                console.log('Connection closed, statusCode:', statusCode);
                 
-                // Baileys میں درست طریقے سے ری-کنیکٹ لاجک
                 if (statusCode !== DisconnectReason.loggedOut) {
                     console.log('🔄 Reconnecting...');
                     setTimeout(startBot, 5000);
                 } else {
-                    console.log('❌ Session logged out. Clear session folder.');
-                    pairingCode = null;
+                    console.log('❌ Session expired or logged out.');
                 }
             }
         });
@@ -328,4 +339,5 @@ async function startBot() {
     }
 }
 
+console.log('👑 Owner: 923039107958');
 startBot();
